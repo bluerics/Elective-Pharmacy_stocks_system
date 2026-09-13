@@ -1,6 +1,5 @@
-from rest_framework import serializers
-from django.contrib.auth.hashers import make_password
 
+from rest_framework import serializers
 from .models import Account
 
 
@@ -8,24 +7,29 @@ class AccountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Account
-        fields = '__all__'
+        fields = [
+            'id',
+            'username',
+            'password',
+            'full_name',
+            'role',
+            'created_at',
+        ]
+
         extra_kwargs = {
-            'password': {'write_only': True}
+            'password': {
+                'write_only': True
+            }
         }
 
     def create(self, validated_data):
 
-        validated_data['password'] = make_password(
-            validated_data['password']
-        )
+        password = validated_data.pop('password')
 
-        return super().create(validated_data)
+        account = Account(**validated_data)
 
-    def update(self, instance, validated_data):
+        account.set_password(password)
 
-        password = validated_data.pop('password', None)
+        account.save()
 
-        if password:
-            instance.password = make_password(password)
-
-        return super().update(instance, validated_data)
+        return account
