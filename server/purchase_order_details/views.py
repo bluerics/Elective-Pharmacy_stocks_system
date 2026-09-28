@@ -1,56 +1,159 @@
-from decimal import Decimal
-
-from rest_framework import viewsets
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
 
 from .models import PurchaseOrderDetail
 from .serializers import PurchaseOrderDetailSerializer
 
 
-class PurchaseOrderDetailViewSet(viewsets.ModelViewSet):
+class PurchaseOrderDetailView(APIView):
 
-    queryset = PurchaseOrderDetail.objects.all()
+    def get_object(self, pk):
 
-    serializer_class = PurchaseOrderDetailSerializer
+        try:
 
+            return PurchaseOrderDetail.objects.get(pk=pk)
 
-    def update_purchase_order_total(self, order):
+        except PurchaseOrderDetail.DoesNotExist:
 
-        total = Decimal('0.00')
-
-        for detail in order.details.all():
-
-            total += (detail.quantity_order*detail.unit_cost)
-
-        order.total_amount = total
-
-        order.save()
+            return None
 
 
-    def perform_create(self, serializer):
+    def get(self, request, pk=None):
 
-        detail = serializer.save()
+        if pk is not None:
 
-        self.update_purchase_order_total(detail.order)
+            detail = self.get_object(pk)
+
+            if detail is None:
+
+                return Response(
+                    {
+                        "message":
+                        "Purchase order detail not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            serializer = PurchaseOrderDetailSerializer(detail)
+
+            return Response(serializer.data)
 
 
-    def perform_update(self, serializer):
+        details = PurchaseOrderDetail.objects.all()
 
-        old_order = self.get_object().order
+        serializer = PurchaseOrderDetailSerializer(
+            details,
+            many=True
+        )
 
-        detail = serializer.save()
-
-
-        self.update_purchase_order_total(detail.order)
-
-        if old_order != detail.order:
-
-            self.update_purchase_order_total(old_order)
+        return Response(serializer.data)
 
 
-    def perform_destroy(self, instance):
+    def post(self, request):
 
-        order = instance.order
+        serializer = PurchaseOrderDetailSerializer(
+            data=request.data
+        )
 
-        instance.delete()
+        if serializer.is_valid():
 
-        self.update_purchase_order_total(order)
+            serializer.save()
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+    def put(self, request, pk):
+
+        detail = self.get_object(pk)
+
+        if detail is None:
+
+            return Response(
+                {
+                    "message":
+                    "Purchase order detail not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = PurchaseOrderDetailSerializer(
+            detail,
+            data=request.data
+        )
+
+        if serializer.is_valid():
+
+            serializer.save()
+
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+    def patch(self, request, pk):
+
+        detail = self.get_object(pk)
+
+        if detail is None:
+
+            return Response(
+                {
+                    "message":
+                    "Purchase order detail not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = PurchaseOrderDetailSerializer(
+            detail,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+
+            serializer.save()
+
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+    def delete(self, request, pk):
+
+        detail = self.get_object(pk)
+
+        if detail is None:
+
+            return Response(
+                {
+                    "message":
+                    "Purchase order detail not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        detail.delete()
+
+        return Response(
+            {
+                "message":
+                "Purchase order detail deleted successfully."
+            },
+            status=status.HTTP_204_NO_CONTENT
+        )

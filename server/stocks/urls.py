@@ -1,17 +1,13 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
-from .views import StockViewSet
-
-
-router = DefaultRouter()
-
-router.register(
-    r'stocks',
-    StockViewSet
-)
+from .views import StockView
+    
 
 
 urlpatterns = [
-    path('', include(router.urls)),
+
+    path('',StockView.as_view(),name='stocks'),
+    path('<int:pk>/',StockView.as_view(),  name='stock'),
+    path('low-stock/',StockView.as_view(),name='low_stock'),
+
 ]

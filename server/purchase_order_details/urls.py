@@ -1,17 +1,13 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
-from .views import PurchaseOrderDetailViewSet
+from .views import PurchaseOrderDetailView
+  
 
-
-router = DefaultRouter()
-
-router.register(
-    r'purchase-order-details',
-    PurchaseOrderDetailViewSet
-)
 
 
 urlpatterns = [
-    path('', include(router.urls)),
+
+    path( '',PurchaseOrderDetailView.as_view(), name='purchase_order_details'),
+    path('<int:pk>/',PurchaseOrderDetailView.as_view(),name='purchase_order_detail' ),
+
 ]
