@@ -77,51 +77,48 @@ class LoginView(APIView):
 
 
 class AccountView(APIView):
-
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-
-
+    def get(self, request, pk=None):
         if request.user.role != 'ADMIN':
             return Response(
-                {
-                    'error': 'Only administrators can access accounts.'
-                },
+                {'error': 'Only administrators can access accounts.'},
                 status=status.HTTP_403_FORBIDDEN
+            )
+
+        if pk is not None:
+            try:
+                account = Account.objects.get(pk=pk)
+            except Account.DoesNotExist:
+                return Response(
+                    {'error': 'Account not found.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            return Response(
+                AccountSerializer(account).data,
+                status=status.HTTP_200_OK
             )
 
         accounts = Account.objects.all()
+        serializer = AccountSerializer(accounts, many=True)
 
-        serializer = AccountSerializer(
-            accounts,
-            many=True
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK
-        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-
-
         if request.user.role != 'ADMIN':
             return Response(
-                {
-                    'error': 'Only administrators can create accounts.'
-                },
+                {'error': 'Only administrators can create accounts.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        serializer = AccountSerializer(
-            data=request.data
-        )
+        data = request.data.copy()
+        data['role'] = 'STAFF'
+
+        serializer = AccountSerializer(data=data)
 
         if serializer.is_valid():
-
             account = serializer.save()
-
             return Response(
                 AccountSerializer(account).data,
                 status=status.HTTP_201_CREATED
@@ -130,6 +127,41 @@ class AccountView(APIView):
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk=None):
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Only administrators can delete accounts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if pk is None:
+            return Response(
+                {'error': 'Account ID is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            account = Account.objects.get(pk=pk)
+        except Account.DoesNotExist:
+            return Response(
+                {'error': 'Account not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Prevent an administrator from deleting their own account.
+        if account.pk == request.user.pk:
+            return Response(
+                {'error': 'You cannot delete your own account.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        account.delete()
+
+        return Response(
+            {'message': 'Account deleted successfully.'},
+            status=status.HTTP_200_OK
         )
 
 

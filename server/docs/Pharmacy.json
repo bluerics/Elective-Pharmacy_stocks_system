@@ -67,7 +67,7 @@
       "requests": [
         {
           "v": "17",
-          "endpoint": "http://localhost:8000/api/medicine/",
+          "endpoint": "http://localhost:8000/api/medicines/",
           "name": "create-medicine",
           "params": [],
           "headers": [],
@@ -88,7 +88,7 @@
         },
         {
           "v": "17",
-          "endpoint": "http://localhost:8000/api/medicine/",
+          "endpoint": "http://localhost:8000/api/medicines/",
           "name": "list-medicine",
           "params": [],
           "headers": [],

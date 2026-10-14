@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.db import transaction
 
 from .models import PurchaseOrder
 from .serializers import PurchaseOrderSerializer
@@ -163,86 +164,110 @@ class PurchaseOrderView(APIView):
         )
 
 
+    
     def receive(self, request, pk):
+        try:
+            with transaction.atomic():
 
-        purchase_order = self.get_object(pk)
+                # Lock the purchase order to prevent duplicate receiving.
+                try:
+                    purchase_order = (
+                        PurchaseOrder.objects
+                        .select_for_update()
+                        .get(pk=pk)
+                    )
+                except PurchaseOrder.DoesNotExist:
+                    return Response(
+                        {"message": "Purchase order not found."},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
 
-        if purchase_order is None:
+                # Prevent receiving the same order twice.
+                if purchase_order.stock_received:
+                    return Response(
+                        {
+                            "message":
+                            "This purchase order has already been received."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-            return Response(
-                {
-                    "message":
-                    "Purchase order not found."
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
+                # Cancelled orders cannot be received.
+                if purchase_order.status == "CANCELLED":
+                    return Response(
+                        {
+                            "message":
+                            "Cancelled purchase orders cannot be received."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
+                # Retrieve the order details.
+                details = list(purchase_order.details.all())
 
-        if purchase_order.stock_received:
+                if not details:
+                    return Response(
+                        {
+                            "message":
+                            "This purchase order has no order details."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-            return Response(
-                {
-                    "message":
-                    "This purchase order has already been received."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+                # Add ordered quantities to inventory.
+                for detail in details:
 
+                    stock, created = Stock.objects.get_or_create(
+                        medicine=detail.medicine,
+                        supplier=purchase_order.supplier,
+                        location="Main Storage",
+                        defaults={
+                            "quantity_available": detail.quantity_order
+                        }
+                    )
 
-        if not purchase_order.details.exists():
+                    if not created:
+                        # Lock the existing stock row before updating it.
+                        stock = Stock.objects.select_for_update().get(
+                            pk=stock.pk
+                        )
 
-            return Response(
-                {
-                    "message":
-                    "This purchase order has no order details."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+                        stock.quantity_available += detail.quantity_order
 
+                        stock.save(
+                            update_fields=["quantity_available"]
+                        )
 
-        for detail in purchase_order.details.all():
+                # Mark the purchase order as received.
+                purchase_order.status = "RECEIVED"
+                purchase_order.stock_received = True
 
-            stock, created = Stock.objects.get_or_create(
-
-                medicine=detail.medicine,
-
-                supplier=purchase_order.supplier,
-
-                location='Main Storage',
-
-                defaults={
-                    'quantity_available':
-                    detail.quantity_order
-                }
-            )
-
-
-            if not created:
-
-                stock.quantity_available += (
-                    detail.quantity_order
+                purchase_order.save(
+                    update_fields=["status", "stock_received"]
                 )
 
-                stock.save()
+                return Response(
+                    {
+                        "message":
+                        "Purchase order received successfully. Stock updated.",
+                        "purchase_order_id": purchase_order.id,
+                        "status": purchase_order.status,
+                        "stock_received": purchase_order.stock_received
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+        except Exception:
+            return Response(
+                {
+                    "message":
+                    "Failed to receive purchase order. No partial changes were saved."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
-        purchase_order.status = 'RECEIVED'
+class ReceivePurchaseOrderView(PurchaseOrderView):
 
-        purchase_order.stock_received = True
-
-        purchase_order.save()
-
-
-        return Response(
-            {
-                "message":
-                "Purchase order received successfully. Stock updated.",
-
-                "purchase_order_id":
-                purchase_order.id,
-
-                "status":
-                purchase_order.status
-            },
-            status=status.HTTP_200_OK
-        )
+    def post(self, request, pk):
+        return self.receive(request, pk)
