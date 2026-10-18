@@ -1,6 +1,8 @@
+
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
 
 interface Supplier {
   id: number
@@ -40,6 +42,8 @@ interface OrderForm {
   status: string
 }
 
+const auth = useAuthStore()
+
 const purchaseOrders = ref<PurchaseOrder[]>([])
 const orderDetails = ref<PurchaseOrderDetail[]>([])
 const suppliers = ref<Supplier[]>([])
@@ -58,6 +62,10 @@ const expandedOrderId = ref<number | null>(null)
 const error = ref('')
 const success = ref('')
 const medicineInput = ref('')
+
+function getResults<T>(data: T[] | { results: T[] }): T[] {
+  return Array.isArray(data) ? data : data.results
+}
 
 function emptyForm(): OrderForm {
   return {
@@ -85,17 +93,13 @@ const estimatedTotal = computed(() => {
   const quantity = Number(form.value.quantity_order)
   const cost = Number(form.value.unit_cost)
 
-  if (
-    !Number.isFinite(quantity) ||
-    !Number.isFinite(cost)
-  ) {
+  if (!Number.isFinite(quantity) || !Number.isFinite(cost)) {
     return 0
   }
 
   return quantity * cost
 })
 
-// Validate the selected values directly.
 const canSubmit = computed(() => {
   const supplierId = Number(form.value.supplier)
   const medicineId = Number(form.value.medicine)
@@ -186,11 +190,11 @@ async function fetchOrders() {
   error.value = ''
 
   try {
-    const response = await api.get<PurchaseOrder[]>(
-      '/purchase_orders/',
-    )
+    const response = await api.get<
+      PurchaseOrder[] | { results: PurchaseOrder[] }
+    >('/purchase_orders/')
 
-    purchaseOrders.value = response.data
+    purchaseOrders.value = getResults(response.data)
   } catch (err: any) {
     error.value =
       err.response?.data?.detail ||
@@ -202,11 +206,11 @@ async function fetchOrders() {
 
 async function fetchOrderDetails() {
   try {
-    const response = await api.get<PurchaseOrderDetail[]>(
-      '/purchase_order_details/',
-    )
+    const response = await api.get<
+      PurchaseOrderDetail[] | { results: PurchaseOrderDetail[] }
+    >('/purchase_order_details/')
 
-    orderDetails.value = response.data
+    orderDetails.value = getResults(response.data)
   } catch {
     error.value = 'Failed to load purchase-order details.'
   }
@@ -214,9 +218,11 @@ async function fetchOrderDetails() {
 
 async function fetchSuppliers() {
   try {
-    const response = await api.get<Supplier[]>('/suppliers/')
+    const response = await api.get<
+      Supplier[] | { results: Supplier[] }
+    >('/suppliers/')
 
-    suppliers.value = response.data
+    suppliers.value = getResults(response.data)
   } catch {
     error.value = 'Failed to load suppliers.'
   }
@@ -224,9 +230,11 @@ async function fetchSuppliers() {
 
 async function fetchMedicines() {
   try {
-    const response = await api.get<Medicine[]>('/medicines/')
+    const response = await api.get<
+      Medicine[] | { results: Medicine[] }
+    >('/medicines/')
 
-    medicines.value = response.data
+    medicines.value = getResults(response.data)
   } catch {
     error.value = 'Failed to load medicines.'
   }
@@ -256,13 +264,12 @@ function closeModal() {
 }
 
 function onMedicineInput() {
-  // A changed name invalidates the previous medicine selection.
-  form.value.medicine= 0
+  form.value.medicine = 0
   showSuggestions.value = true
 }
 
 function selectMedicine(medicine: Medicine) {
-  form.value.medicine= Number(medicine.id)
+  form.value.medicine = Number(medicine.id)
   medicineInput.value = medicine.medicine_name
   showSuggestions.value = false
 }
@@ -278,7 +285,6 @@ async function submitForm() {
   const quantity = Number(form.value.quantity_order)
   const unitCost = Number(form.value.unit_cost)
 
-  // Revalidate inside the handler, even if the button is enabled.
   if (
     !Number.isInteger(supplierId) ||
     supplierId <= 0 ||
@@ -318,7 +324,6 @@ async function submitForm() {
   try {
     const total = quantity * unitCost
 
-    // Create the purchase-order header.
     const orderResponse = await api.post<PurchaseOrder>(
       '/purchase_orders/',
       {
@@ -336,7 +341,6 @@ async function submitForm() {
       )
     }
 
-    // Create the associated medicine detail.
     try {
       await api.post<PurchaseOrderDetail>(
         '/purchase_order_details/',
@@ -348,11 +352,8 @@ async function submitForm() {
         },
       )
     } catch (detailError) {
-      // Attempt cleanup if creating the detail fails.
       try {
-        await api.delete(
-          `/purchase_orders/${createdOrderId}/`,
-        )
+        await api.delete(`/purchase_orders/${createdOrderId}/`)
       } catch {
         throw new Error(
           'The purchase order was created, but its medicine detail failed and cleanup also failed. Check the order before retrying.',
@@ -362,7 +363,6 @@ async function submitForm() {
       throw detailError
     }
 
-    // Reload data. A refresh failure should not undo a successful creation.
     showModal.value = false
     form.value = emptyForm()
     medicineInput.value = ''
@@ -371,11 +371,7 @@ async function submitForm() {
     success.value =
       `Purchase order #${createdOrderId} created successfully.`
 
-    try {
-      await refreshAll()
-    } catch {
-      // The order was already created successfully.
-    }
+    await refreshAll()
   } catch (err: any) {
     const data = err.response?.data
 
@@ -409,11 +405,11 @@ async function toggleDetails(orderId: number) {
   detailsLoadingId.value = orderId
 
   try {
-    const response = await api.get<PurchaseOrderDetail[]>(
-      '/purchase_order_details/',
-    )
+    const response = await api.get<
+      PurchaseOrderDetail[] | { results: PurchaseOrderDetail[] }
+    >('/purchase_order_details/')
 
-    orderDetails.value = response.data
+    orderDetails.value = getResults(response.data)
   } catch {
     error.value = 'Could not load purchase-order details.'
   } finally {
@@ -470,6 +466,9 @@ async function receiveOrder(order: PurchaseOrder) {
 }
 
 async function deleteOrder(order: PurchaseOrder) {
+  // Only ADMIN users can delete purchase orders.
+  if (!auth.isAdmin || deletingId.value !== null) return
+
   if (
     !window.confirm(
       `Delete purchase order #${order.id} and its associated details?`,
@@ -564,8 +563,33 @@ onMounted(async () => {
       {{ error }}
     </div>
 
-    <!-- Purchase Orders Table -->
+    <!-- Purchase Order Records -->
     <div class="space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-lg font-extrabold text-[#213A57]">
+            Purchase Order Records
+          </h2>
+          <p class="mt-1 text-xs text-slate-500">
+            View orders and expand details to see the medicines, quantities, and costs.
+          </p>
+        </div>
+
+        <!-- Refresh button -->
+        <button
+          type="button"
+          @click="refreshAll"
+          :disabled="loading"
+          class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-[#14919B]/30 bg-[#14919B]/10 px-4 py-2.5 text-xs font-bold text-[#0B6477] shadow-sm transition-all hover:border-[#14919B]/50 hover:bg-[#14919B]/20 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
+        >
+          <i
+            class="fa-solid fa-rotate-right"
+            :class="{ 'animate-spin': loading }"
+          ></i>
+          {{ loading ? 'Refreshing...' : 'Refresh' }}
+        </button>
+      </div>
+
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm">
           <thead
@@ -628,6 +652,7 @@ onMounted(async () => {
 
                   <td class="p-4">
                     <div class="flex flex-wrap justify-end gap-2">
+                      <!-- Both ADMIN and STAFF can view details -->
                       <button
                         type="button"
                         @click="toggleDetails(po.id)"
@@ -640,6 +665,7 @@ onMounted(async () => {
                         }}
                       </button>
 
+                      <!-- Both roles can receive orders -->
                       <button
                         v-if="!po.stock_received && po.status !== 'CANCELLED'"
                         type="button"
@@ -654,7 +680,9 @@ onMounted(async () => {
                         }}
                       </button>
 
+                      <!-- ADMIN-only delete -->
                       <button
+                        v-if="auth.isAdmin"
                         type="button"
                         @click="deleteOrder(po)"
                         :disabled="deletingId === po.id"
@@ -670,7 +698,7 @@ onMounted(async () => {
                   </td>
                 </tr>
 
-                <!-- Order Details -->
+                <!-- Order Details: visible to both roles -->
                 <tr v-if="expandedOrderId === po.id">
                   <td colspan="6" class="bg-slate-50/70 p-4">
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
@@ -734,18 +762,6 @@ onMounted(async () => {
             </template>
           </tbody>
         </table>
-      </div>
-
-      <div class="flex justify-end border-t border-slate-100 pt-4">
-        <button
-          type="button"
-          @click="refreshAll"
-          :disabled="loading"
-          class="rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
-        >
-          <i class="fa-solid fa-rotate-right mr-1"></i>
-          Refresh
-        </button>
       </div>
     </div>
 
@@ -932,19 +948,27 @@ onMounted(async () => {
             </p>
 
             <ul class="list-inside list-disc space-y-1">
-              <li v-if="!Number.isInteger(Number(form.supplier)) || Number(form.supplier) <= 0">
+              <li
+                v-if="!Number.isInteger(Number(form.supplier)) || Number(form.supplier) <= 0"
+              >
                 Select a supplier.
               </li>
 
-              <li v-if="!Number.isInteger(Number(form.medicine)) || Number(form.medicine) <= 0">
+              <li
+                v-if="!Number.isInteger(Number(form.medicine)) || Number(form.medicine) <= 0"
+              >
                 Select a medicine from the suggestions.
               </li>
 
-              <li v-if="!Number.isInteger(Number(form.quantity_order)) || Number(form.quantity_order) <= 0">
+              <li
+                v-if="!Number.isInteger(Number(form.quantity_order)) || Number(form.quantity_order) <= 0"
+              >
                 Enter a positive whole-number quantity.
               </li>
 
-              <li v-if="!Number.isFinite(Number(form.unit_cost)) || Number(form.unit_cost) < 0">
+              <li
+                v-if="!Number.isFinite(Number(form.unit_cost)) || Number(form.unit_cost) < 0"
+              >
                 Enter a valid unit cost.
               </li>
             </ul>

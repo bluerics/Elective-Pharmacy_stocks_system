@@ -15,6 +15,10 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/',
+      redirect: '/login',
+    },
+    {
       path: '/login',
       name: 'Login',
       component: LoginView,
@@ -23,11 +27,8 @@ const router = createRouter({
     {
       path: '/',
       component: DashboardLayout,
+      meta: { requiresAuth: true },
       children: [
-        {
-          path: '',
-          redirect: '/dashboard',
-        },
         {
           path: 'dashboard',
           name: 'Dashboard',
@@ -63,32 +64,32 @@ const router = createRouter({
     },
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/dashboard',
+      redirect: '/login',
     },
   ],
 })
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+
   auth.restoreSession()
 
   const token = localStorage.getItem('access_token')
 
-  if (!to.meta.public && !token) {
+  // Require authentication for inventory pages.
+  if (to.matched.some(record => record.meta.requiresAuth) && !token) {
     return '/login'
   }
 
-  if (to.meta.public && token) {
-    return '/dashboard'
-  }
-
+  // Restrict Accounts & Roles to admins.
   if (
-    to.meta.adminOnly &&
-    String(auth.user?.role ?? '').toUpperCase() !== 'ADMIN'
+    to.matched.some(record => record.meta.adminOnly) &&
+    !auth.isAdmin
   ) {
     return '/dashboard'
   }
 
+  // Allow /login even if a previous session exists.
   return true
 })
 

@@ -88,21 +88,7 @@ async function handleLogout() {
                  rounded-xl bg-[#0AD1C8]/15 text-[#80ED99]"
           title="PharmaStock"
         >
-          <svg
-            class="h-6 w-6"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10 3h4v5l4.5 7.5a3.5 3.5 0 0 1-3 5.5h-7a3.5 3.5 0 0 1-3-5.5L10 8V3Z" />
-            <path d="M8 15h8" />
-            <path d="M12 12v6" />
-            <path d="M9 15h6" />
-          </svg>
+          <img src="/logo.png" alt="PharmaStock" class="h-11 w-11 rounded-xl object-contain"/>
         </div>
 
         <div v-if="!collapsed" class="min-w-0">

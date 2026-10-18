@@ -2,6 +2,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 
 interface Stock {
   id: number
@@ -56,15 +59,19 @@ const error = ref('')
 const success = ref('')
 const form = ref<StockForm>(emptyForm())
 
+// Support standard and paginated Django REST responses.
+function getResults<T>(data: T[] | { results: T[] }): T[] {
+  return Array.isArray(data) ? data : data.results
+}
+
+// GET: Fetch stock records
 async function fetchStocks() {
   loading.value = true
   error.value = ''
 
   try {
-    const response = await api.get<Stock[]>('/stocks/')
-    stockList.value = Array.isArray(response.data)
-      ? response.data
-      : []
+    const response = await api.get<Stock[] | { results: Stock[] }>('/stocks/')
+    stockList.value = getResults(response.data)
   } catch (err: any) {
     error.value =
       err.response?.data?.detail ||
@@ -75,13 +82,13 @@ async function fetchStocks() {
   }
 }
 
+// GET: Fetch medicines for dropdown
 async function fetchMedicines() {
   try {
-    const response = await api.get<Medicine[]>('/medicines/')
-
-    medicines.value = Array.isArray(response.data)
-      ? response.data
-      : []
+    const response = await api.get<Medicine[] | { results: Medicine[] }>(
+      '/medicines/',
+    )
+    medicines.value = getResults(response.data)
   } catch (err: any) {
     error.value =
       err.response?.data?.detail ||
@@ -89,13 +96,13 @@ async function fetchMedicines() {
   }
 }
 
+// GET: Fetch suppliers for dropdown
 async function fetchSuppliers() {
   try {
-    const response = await api.get<Supplier[]>('/suppliers/')
-
-    suppliers.value = Array.isArray(response.data)
-      ? response.data
-      : []
+    const response = await api.get<Supplier[] | { results: Supplier[] }>(
+      '/suppliers/',
+    )
+    suppliers.value = getResults(response.data)
   } catch (err: any) {
     error.value =
       err.response?.data?.detail ||
@@ -112,6 +119,7 @@ function formatDate(value: string) {
     : date.toLocaleString()
 }
 
+// Open modal for adding stock
 function openAddModal() {
   error.value = ''
   success.value = ''
@@ -121,6 +129,7 @@ function openAddModal() {
   showModal.value = true
 }
 
+// Open modal for editing stock
 function openEditModal(stock: Stock) {
   error.value = ''
   success.value = ''
@@ -142,7 +151,10 @@ function closeModal() {
   showModal.value = false
 }
 
+// POST: Add stock; PUT: Update stock
 async function submitForm() {
+  if (saving.value) return
+
   error.value = ''
   success.value = ''
 
@@ -168,10 +180,7 @@ async function submitForm() {
     return
   }
 
-  if (
-    !Number.isInteger(quantity) ||
-    quantity < 0
-  ) {
+  if (!Number.isInteger(quantity) || quantity < 0) {
     error.value =
       'Quantity must be a whole number greater than or equal to zero.'
     return
@@ -185,7 +194,6 @@ async function submitForm() {
   const medicineExists = medicines.value.some(
     medicine => medicine.id === medicineId,
   )
-
   const supplierExists = suppliers.value.some(
     supplier => supplier.id === supplierId,
   )
@@ -205,35 +213,16 @@ async function submitForm() {
     quantity_available: quantity,
   }
 
-  console.log('Stock payload:', payload)
-
   try {
     if (isEditing.value && editingId.value !== null) {
       const id = editingId.value
 
-      const response = await api.put<Stock>(
-        `/stocks/${id}/`,
-        payload,
-      )
-
-      const index = stockList.value.findIndex(
-        stock => stock.id === id,
-      )
-
-      if (index !== -1) {
-        stockList.value[index] = response.data
-      } else {
-        await fetchStocks()
-      }
+      await api.put(`/stocks/${id}/`, payload)
 
       success.value = 'Stock record updated successfully.'
     } else {
-      const response = await api.post<Stock>(
-        '/stocks/',
-        payload,
-      )
+      await api.post('/stocks/', payload)
 
-      stockList.value.push(response.data)
       success.value = 'Stock record added successfully.'
     }
 
@@ -241,6 +230,9 @@ async function submitForm() {
     form.value = emptyForm()
     isEditing.value = false
     editingId.value = null
+
+    // Reload records so related names and last-updated values stay current.
+    await fetchStocks()
   } catch (err: any) {
     const data = err.response?.data
 
@@ -265,7 +257,10 @@ async function submitForm() {
   }
 }
 
+// DELETE: ADMIN only
 async function deleteStock(id: number) {
+  if (!auth.isAdmin || deletingId.value !== null) return
+
   const stock = stockList.value.find(item => item.id === id)
   if (!stock) return
 
@@ -352,8 +347,37 @@ onMounted(async () => {
       {{ error }}
     </div>
 
-    <!-- Stock Table -->
-    <div class="min-w-0 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
+    <!-- Stock Records Card -->
+    <div
+      class="w-full min-w-0 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm"
+    >
+      <!-- Records Header and Refresh Button -->
+      <div
+        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div>
+          <h2 class="text-lg font-extrabold text-[#213A57]">
+            Stock Records
+          </h2>
+          <p class="mt-1 text-xs text-slate-500">
+            View and manage medicine stock quantities and locations.
+          </p>
+        </div>
+
+        <button
+          @click="fetchStocks"
+          :disabled="loading"
+          class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-[#14919B]/30 bg-[#14919B]/10 px-4 py-2.5 text-xs font-bold text-[#0B6477] shadow-sm transition-all hover:border-[#14919B]/50 hover:bg-[#14919B]/20 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
+        >
+          <i
+            class="fa-solid fa-rotate-right"
+            :class="{ 'animate-spin': loading }"
+          ></i>
+          {{ loading ? 'Refreshing...' : 'Refresh' }}
+        </button>
+      </div>
+
+      <!-- Stock Table -->
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm">
           <thead
@@ -393,23 +417,30 @@ onMounted(async () => {
               <td class="p-4 font-mono font-bold text-slate-500">
                 #{{ stk.id }}
               </td>
+
               <td class="p-4 font-bold text-slate-900">
                 {{ stk.medicine_name }}
               </td>
+
               <td class="p-4 text-xs text-slate-600">
                 {{ stk.supplier_name }}
               </td>
+
               <td class="p-4 text-xs font-semibold text-slate-700">
                 {{ stk.location }}
               </td>
+
               <td class="p-4 font-extrabold text-[#0B6477]">
                 {{ stk.quantity_available }} units
               </td>
+
               <td class="p-4 font-mono text-xs text-slate-600">
                 {{ formatDate(stk.last_updated) }}
               </td>
+
               <td class="p-4">
                 <div class="flex justify-end gap-2">
+                  <!-- ADMIN and STAFF can edit -->
                   <button
                     @click="openEditModal(stk)"
                     class="rounded-xl bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
@@ -418,10 +449,12 @@ onMounted(async () => {
                     Edit
                   </button>
 
+                  <!-- ADMIN only can delete -->
                   <button
+                    v-if="auth.isAdmin"
                     @click="deleteStock(stk.id)"
                     :disabled="deletingId === stk.id"
-                    class="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+                    class="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <i
                       v-if="deletingId === stk.id"
@@ -435,18 +468,6 @@ onMounted(async () => {
           </tbody>
         </table>
       </div>
-
-      <!-- Refresh -->
-      <div class="flex justify-end border-t border-slate-100 pt-4">
-        <button
-          @click="fetchStocks"
-          :disabled="loading"
-          class="rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
-        >
-          <i class="fa-solid fa-rotate-right mr-1"></i>
-          Refresh
-        </button>
-      </div>
     </div>
 
     <!-- Add/Edit Stock Modal -->
@@ -458,7 +479,9 @@ onMounted(async () => {
       <div
         class="my-auto w-full max-w-md space-y-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-xl"
       >
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div
+          class="flex items-center justify-between border-b border-slate-100 pb-3"
+        >
           <h3 class="text-lg font-bold text-[#213A57]">
             {{ isEditing ? 'Edit Stock Record' : 'Add Stock Record' }}
           </h3>
@@ -484,7 +507,7 @@ onMounted(async () => {
             <select
               v-model="form.medicine"
               required
-              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none transition focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
             >
               <option value="" disabled>Select a medicine</option>
               <option
@@ -496,27 +519,43 @@ onMounted(async () => {
               </option>
             </select>
 
-            <p v-if="medicines.length === 0" class="mt-1 text-xs text-rose-500">
+            <p
+              v-if="medicines.length === 0"
+              class="mt-1 text-xs text-rose-500"
+            >
               No medicines available. Add a medicine first.
             </p>
           </div>
 
           <!-- Supplier Dropdown -->
-          <select
-            v-model="form.supplier"
-            required
-            class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-          >
-            <option value="" disabled>Select a supplier</option>
+          <div>
+            <label class="mb-1 block text-xs font-bold text-slate-600">
+              Supplier
+            </label>
 
-            <option
-              v-for="supplier in suppliers"
-              :key="supplier.id"
-              :value="supplier.id"
+            <select
+              v-model="form.supplier"
+              required
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none transition focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
             >
-              {{ supplier.supplier_name }}
-            </option>
-        </select> 
+              <option value="" disabled>Select a supplier</option>
+              <option
+                v-for="supplier in suppliers"
+                :key="supplier.id"
+                :value="supplier.id"
+              >
+                {{ supplier.supplier_name }}
+              </option>
+            </select>
+
+            <p
+              v-if="suppliers.length === 0"
+              class="mt-1 text-xs text-rose-500"
+            >
+              No suppliers available. Register a supplier first.
+            </p>
+          </div>
+
           <!-- Location -->
           <div>
             <label class="mb-1 block text-xs font-bold text-slate-600">
@@ -526,7 +565,7 @@ onMounted(async () => {
               v-model.trim="form.location"
               required
               type="text"
-              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none transition focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
               placeholder="e.g. Shelf A-1"
             />
           </div>
@@ -542,12 +581,15 @@ onMounted(async () => {
               type="number"
               min="0"
               step="1"
-              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
+              class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none transition focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/10"
               placeholder="50"
             />
           </div>
 
-          <div class="flex justify-end space-x-3 border-t border-slate-100 pt-3">
+          <!-- Modal Actions -->
+          <div
+            class="flex justify-end space-x-3 border-t border-slate-100 pt-3"
+          >
             <button
               type="button"
               @click="closeModal"
@@ -559,7 +601,11 @@ onMounted(async () => {
 
             <button
               type="submit"
-              :disabled="saving || medicines.length === 0 || suppliers.length === 0"
+              :disabled="
+                saving ||
+                medicines.length === 0 ||
+                suppliers.length === 0
+              "
               class="rounded-xl bg-gradient-to-r from-[#0B6477] to-[#14919B] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <i v-if="saving" class="fa-solid fa-spinner fa-spin mr-1"></i>

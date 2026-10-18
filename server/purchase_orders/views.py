@@ -7,9 +7,11 @@ from .models import PurchaseOrder
 from .serializers import PurchaseOrderSerializer
 
 from stocks.models import Stock
+from rest_framework.permissions import IsAuthenticated
 
 
 class PurchaseOrderView(APIView):
+    permissiion_classes=[IsAuthenticated]
 
     def get_object(self, pk):
 
@@ -140,6 +142,14 @@ class PurchaseOrderView(APIView):
 
 
     def delete(self, request, pk):
+        if request.user.role != "ADMIN":
+            return Response(
+                {
+                    "message":"Only ADMIN can delete purchase orders"
+                },
+                status= status.HTTP_403_FORBIDDEN
+
+            )
 
         purchase_order = self.get_object(pk)
 

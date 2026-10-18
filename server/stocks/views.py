@@ -4,9 +4,11 @@ from rest_framework import status
 
 from .models import Stock
 from .serializers import StockSerializer
+from rest_framework.permissions import IsAuthenticated
 
 
 class StockView(APIView):
+    permission_classes=[IsAuthenticated]
 
     def get_object(self, pk):
 
@@ -163,6 +165,14 @@ class StockView(APIView):
 
 
     def delete(self, request, pk):
+        if request.user.role !="ADMIN":
+            return Response(
+                {
+                    "message": "Only Admin can delete stock."
+                
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         stock = self.get_object(pk)
 

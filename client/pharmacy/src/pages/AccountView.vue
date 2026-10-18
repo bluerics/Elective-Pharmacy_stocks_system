@@ -399,7 +399,7 @@ onMounted(loadAccounts)
 
           <div>
             <label class="mb-1.5 block text-xs font-bold text-slate-600">
-              Temporary Password
+              Password
             </label>
             <div class="relative">
               <input
@@ -407,7 +407,7 @@ onMounted(loadAccounts)
                 required
                 :type="showPassword ? 'text' : 'password'"
                 autocomplete="new-password"
-                placeholder="Enter a temporary password"
+                placeholder="Enter a password"
                 class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 pr-16 text-xs outline-none focus:border-[#14919B] focus:ring-2 focus:ring-[#14919B]/15"
               />
               <button

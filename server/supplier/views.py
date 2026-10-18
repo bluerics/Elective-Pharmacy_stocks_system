@@ -4,9 +4,11 @@ from rest_framework import status
 
 from .models import Supplier
 from .serializers import SupplierSerializer
+from rest_framework.permissions import IsAuthenticated
 
 
 class SupplierView(APIView):
+    permission_classes =[IsAuthenticated]
 
     def get_object(self, pk):
 
@@ -135,6 +137,15 @@ class SupplierView(APIView):
 
 
     def delete(self, request, pk):
+
+        if request.user.role !="ADMIN":
+            return Response(
+                {
+                    "message": "Only Admin can delete supplier."
+                
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         supplier = self.get_object(pk)
 

@@ -1,6 +1,10 @@
+
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 
 interface Supplier {
   id: number
@@ -45,7 +49,13 @@ async function fetchSuppliers() {
 
   try {
     const response = await api.get<Supplier[]>('/suppliers/')
-    suppliers.value = response.data
+
+    // Supports both regular arrays and paginated Django REST responses.
+    const data = response.data as unknown as
+      | Supplier[]
+      | { results: Supplier[] }
+
+    suppliers.value = Array.isArray(data) ? data : data.results
   } catch (err: any) {
     error.value =
       err.response?.data?.detail ||
@@ -66,7 +76,7 @@ function openAddModal() {
   showModal.value = true
 }
 
-// Open modal with existing supplier details
+// Open modal for editing a supplier
 function openEditModal(supplier: Supplier) {
   error.value = ''
   success.value = ''
@@ -90,6 +100,8 @@ function closeModal() {
 
 // POST: Add a supplier; PUT: Update a supplier
 async function submitForm() {
+  if (saving.value) return
+
   saving.value = true
   error.value = ''
   success.value = ''
@@ -148,8 +160,10 @@ async function submitForm() {
   }
 }
 
-// DELETE: Delete a supplier
+// DELETE: ADMIN only
 async function deleteSupplier(id: number) {
+  if (!auth.isAdmin || deletingId.value !== null) return
+
   const supplier = suppliers.value.find(
     item => item.id === id,
   )
@@ -188,8 +202,6 @@ async function deleteSupplier(id: number) {
 
 onMounted(fetchSuppliers)
 </script>
-
-
 
 <template>
   <div class="w-full min-w-0 space-y-6 overflow-y-auto pb-6 scrollbar-hide">
@@ -235,8 +247,37 @@ onMounted(fetchSuppliers)
       {{ error }}
     </div>
 
-    <!-- Supplier Table -->
-    <div class="min-w-0 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
+    <!-- Supplier Records Card -->
+    <div
+      class="w-full min-w-0 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm"
+    >
+      <!-- Records Header and Refresh Button -->
+      <div
+        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div>
+          <h2 class="text-lg font-extrabold text-[#213A57]">
+            Supplier Records
+          </h2>
+          <p class="mt-1 text-xs text-slate-500">
+            View and manage registered suppliers.
+          </p>
+        </div>
+
+        <button
+          @click="fetchSuppliers"
+          :disabled="loading"
+          class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-[#14919B]/30 bg-[#14919B]/10 px-4 py-2.5 text-xs font-bold text-[#0B6477] shadow-sm transition-all hover:border-[#14919B]/50 hover:bg-[#14919B]/20 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
+        >
+          <i
+            class="fa-solid fa-rotate-right"
+            :class="{ 'animate-spin': loading }"
+          ></i>
+          {{ loading ? 'Refreshing...' : 'Refresh' }}
+        </button>
+      </div>
+
+      <!-- Supplier Table -->
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm">
           <thead
@@ -274,21 +315,26 @@ onMounted(fetchSuppliers)
               <td class="p-4 font-mono font-bold text-slate-500">
                 #{{ sup.id }}
               </td>
+
               <td class="p-4 font-bold text-slate-900">
                 {{ sup.supplier_name }}
               </td>
+
               <td class="p-4 text-xs text-slate-600">
                 {{ sup.supplier_address }}
               </td>
+
               <td class="p-4 font-mono text-xs text-slate-600">
                 {{ sup.email }}
               </td>
+
               <td class="p-4 font-mono text-xs text-slate-600">
                 {{ sup.contact_number }}
               </td>
 
               <td class="p-4">
                 <div class="flex justify-end gap-2">
+                  <!-- ADMIN and STAFF can edit -->
                   <button
                     @click="openEditModal(sup)"
                     class="rounded-xl bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
@@ -297,10 +343,12 @@ onMounted(fetchSuppliers)
                     Edit
                   </button>
 
+                  <!-- ADMIN only can delete -->
                   <button
+                    v-if="auth.isAdmin"
                     @click="deleteSupplier(sup.id)"
                     :disabled="deletingId === sup.id"
-                    class="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+                    class="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <i
                       v-if="deletingId === sup.id"
@@ -314,17 +362,6 @@ onMounted(fetchSuppliers)
           </tbody>
         </table>
       </div>
-
-      <div class="flex justify-end border-t border-slate-100 pt-4">
-        <button
-          @click="fetchSuppliers"
-          :disabled="loading"
-          class="rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
-        >
-          <i class="fa-solid fa-rotate-right mr-1"></i>
-          Refresh
-        </button>
-      </div>
     </div>
 
     <!-- Add/Edit Supplier Modal -->
@@ -336,7 +373,9 @@ onMounted(fetchSuppliers)
       <div
         class="my-auto w-full max-w-md space-y-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-xl"
       >
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div
+          class="flex items-center justify-between border-b border-slate-100 pb-3"
+        >
           <h3 class="text-lg font-bold text-[#213A57]">
             {{ isEditing ? 'Edit Supplier' : 'Register Supplier' }}
           </h3>
@@ -406,7 +445,9 @@ onMounted(fetchSuppliers)
             />
           </div>
 
-          <div class="flex justify-end space-x-3 border-t border-slate-100 pt-3">
+          <div
+            class="flex justify-end space-x-3 border-t border-slate-100 pt-3"
+          >
             <button
               type="button"
               @click="closeModal"
@@ -434,4 +475,3 @@ onMounted(fetchSuppliers)
     </div>
   </div>
 </template>
-

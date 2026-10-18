@@ -3,6 +3,10 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+
+
+const auth = useAuthStore()
 
 interface Medicine {
   id: number
@@ -33,6 +37,7 @@ const medicines = ref<Medicine[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const deletingId = ref<number | null>(null)
+const editingId = ref<number | null>(null)
 const showModal = ref(false)
 const error = ref('')
 const success = ref('')
@@ -101,9 +106,6 @@ async function fetchMedicines() {
       medicines.value = []
       error.value = 'Unexpected response format from Django.'
     }
-
-    console.log('Medicines returned by Django:', medicines.value)
-    console.log('Total medicines:', medicines.value.length)
   } catch (err: unknown) {
     error.value = `Failed to load medicines. ${getErrorMessage(err)}`
     console.error('Fetch medicines error:', err)
@@ -115,13 +117,37 @@ async function fetchMedicines() {
 function openModal() {
   error.value = ''
   success.value = ''
+  editingId.value = null
   Object.assign(form, createEmptyForm())
+  showModal.value = true
+}
+
+function openEditModal(med: Medicine) {
+  error.value = ''
+  success.value = ''
+  editingId.value = med.id
+
+  Object.assign(form, {
+    medicine_name: med.medicine_name,
+    brand_name: med.brand_name,
+    category: med.category,
+    dosage_form: med.dosage_form,
+    strength: med.strength,
+    reorder_level: med.reorder_level,
+    medicine_type: med.medicine_type,
+    manufacturer: med.manufacturer,
+    expiry_date: med.expiry_date,
+  })
+
   showModal.value = true
 }
 
 function closeModal() {
   if (saving.value) return
+
   showModal.value = false
+  editingId.value = null
+  Object.assign(form, createEmptyForm())
 }
 
 async function submitForm() {
@@ -130,23 +156,30 @@ async function submitForm() {
   success.value = ''
 
   try {
-    await api.post('/medicines/', { ...form })
+    if (editingId.value !== null) {
+      await api.put(`/medicines/${editingId.value}/`, { ...form })
+      success.value = 'Medicine updated successfully.'
+    } else {
+      await api.post('/medicines/', { ...form })
+      success.value = 'Medicine added successfully.'
+    }
 
     showModal.value = false
+    editingId.value = null
     Object.assign(form, createEmptyForm())
 
-    success.value = 'Medicine added successfully.'
     await fetchMedicines()
   } catch (err: unknown) {
-    error.value = `Failed to add medicine. ${getErrorMessage(err)}`
-    console.error('Add medicine error:', err)
+    error.value = `Failed to ${editingId.value !== null ? 'update' : 'add'} medicine. ${getErrorMessage(err)}`
+    console.error('Save medicine error:', err)
   } finally {
     saving.value = false
   }
 }
 
 async function deleteMedicine(id: number) {
-  if (deletingId.value !== null) return
+  // Extra frontend safeguard; Django must enforce this too.
+  if (!auth.isAdmin || deletingId.value !== null) return
 
   const confirmed = window.confirm(
     'Are you sure you want to delete this medicine?'
@@ -240,9 +273,12 @@ onMounted(() => {
         <button
           @click="fetchMedicines"
           :disabled="loading"
-          class="text-xs font-semibold text-[#0B6477] hover:underline disabled:opacity-50"
-        >
-          <i class="fa-solid fa-rotate-right mr-1"></i>
+          class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#14919B]/30 bg-[#14919B]/10 text-[#0B6477] text-xs font-bold shadow-sm hover:bg-[#14919B]/20 hover:border-[#14919B]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+
+          <i class="fa-solid fa-rotate-right"
+             :class="{'animate-spin':loading}">
+
+          </i>
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
       </div>
@@ -315,13 +351,25 @@ onMounted(() => {
               </td>
 
               <td class="p-4 text-right">
-                <button
-                  @click="deleteMedicine(med.id)"
-                  :disabled="deletingId === med.id"
-                  class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
-                >
-                  {{ deletingId === med.id ? 'Deleting...' : 'Delete' }}
-                </button>
+                <div class="flex justify-end gap-2">
+                  <!-- ADMIN and STAFF can edit -->
+                  <button
+                    @click="openEditModal(med)"
+                    class="bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                  >
+                    Edit
+                  </button>
+
+                  <!-- Only ADMIN can delete -->
+                  <button
+                    v-if="auth.isAdmin"
+                    @click="deleteMedicine(med.id)"
+                    :disabled="deletingId === med.id"
+                    class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+                  >
+                    {{ deletingId === med.id ? 'Deleting...' : 'Delete' }}
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -329,7 +377,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Add Medicine Modal -->
+    <!-- Add / Edit Medicine Modal -->
     <div
       v-if="showModal"
       class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
@@ -338,9 +386,11 @@ onMounted(() => {
       <div
         class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-xl space-y-4 border border-slate-100 my-auto"
       >
-        <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div
+          class="flex justify-between items-center border-b border-slate-100 pb-3"
+        >
           <h3 class="text-lg font-bold text-[#213A57]">
-            Add New Medicine
+            {{ editingId !== null ? 'Edit Medicine' : 'Add New Medicine' }}
           </h3>
 
           <button
@@ -444,6 +494,7 @@ onMounted(() => {
             <input
               v-model.trim="form.medicine_type"
               required
+              @input="form.medicine_type= form.medicine_type.toUpperCase()"
               type="text"
               class="medicine-input"
               placeholder="e.g. Branded"
@@ -475,7 +526,9 @@ onMounted(() => {
             />
           </div>
 
-          <div class="sm:col-span-2 flex justify-end space-x-3 pt-3 border-t border-slate-100">
+          <div
+            class="sm:col-span-2 flex justify-end space-x-3 pt-3 border-t border-slate-100"
+          >
             <button
               type="button"
               @click="closeModal"
@@ -490,7 +543,11 @@ onMounted(() => {
               :disabled="saving"
               class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-[#0B6477] to-[#14919B] text-white disabled:opacity-50"
             >
-              {{ saving ? 'Saving...' : 'Save Medicine' }}
+              {{
+                saving
+                  ? (editingId !== null ? 'Updating...' : 'Saving...')
+                  : (editingId !== null ? 'Update Medicine' : 'Save Medicine')
+              }}
             </button>
           </div>
         </form>

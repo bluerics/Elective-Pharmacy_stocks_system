@@ -17,11 +17,8 @@ async function handleLogin() {
   loading.value = true
 
   try {
-    // Login through the Pinia auth store.
-    // This saves the tokens and user information.
     await auth.login(username.value, password.value)
 
-    // Redirect after successful login.
     await router.replace('/dashboard')
   } catch (err: any) {
     error.value =
@@ -47,7 +44,7 @@ async function handleLogin() {
       overflow-hidden flex flex-col md:flex-row min-h-[540px]
       border border-white/60"
     >
-      <!-- LEFT PANEL -->
+    
       <div
         class="relative overflow-hidden md:w-1/2
         bg-gradient-to-br from-[#213A57] via-[#0B6477]
@@ -56,16 +53,11 @@ async function handleLogin() {
       >
         <div class="relative z-10 space-y-4">
           <div class="flex items-center gap-3 mb-8">
-            <div
-              class="grid size-12 place-items-center rounded-xl
-              bg-[#0AD1C8] text-[#213A57] text-2xl font-bold"
-            >
-              M
-            </div>
+             <img src="/logo.png" alt="PharmaStock" class="h-11 w-11 rounded-xl object-contain"/>
 
             <div>
               <p class="text-xl font-bold tracking-wide">
-                MediStock
+                PharmaStock
               </p>
               <p class="text-xs text-white/70">
                 Pharmacy Inventory
@@ -80,14 +72,14 @@ async function handleLogin() {
             <span
               class="w-2 h-2 rounded-full bg-[#0AD1C8] animate-pulse"
             ></span>
-            Connected Care, Organised
+            Connected Care, Organized
           </span>
 
           <h1
             class="text-3xl md:text-4xl font-serif font-bold
             tracking-wide leading-tight text-white"
           >
-            Pharmacy Management System
+            Pharmacy Inventory System
           </h1>
 
           <p class="text-sm text-[#80ED99]/90 leading-relaxed max-w-sm">
@@ -407,7 +399,7 @@ async function handleLogin() {
             </p>
 
             <p class="text-center text-[10px] text-slate-400 mt-3">
-              MediStock Pharmacy Inventory System
+                PharmaStock Pharmacy Inventory System
             </p>
           </div>
         </div>

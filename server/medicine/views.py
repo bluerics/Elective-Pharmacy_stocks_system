@@ -4,9 +4,11 @@ from rest_framework import status
 
 from .models import Medicine
 from .serializers import MedicineSerializer
+from rest_framework.permissions import IsAuthenticated
 
 
 class MedicineView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get_object(self, pk):
 
@@ -134,14 +136,20 @@ class MedicineView(APIView):
 
     def delete(self, request, pk):
 
+        if request.user.role != "ADMIN":
+            return Response(
+                {
+                    "message": "Only ADMIN can delete medicines."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         medicine = self.get_object(pk)
 
         if medicine is None:
-
             return Response(
                 {
-                    "message":
-                    "Medicine not found."
+                    "message": "Medicine not found."
                 },
                 status=status.HTTP_404_NOT_FOUND
             )
@@ -149,9 +157,5 @@ class MedicineView(APIView):
         medicine.delete()
 
         return Response(
-            {
-                "message":
-                "Medicine deleted successfully."
-            },
             status=status.HTTP_204_NO_CONTENT
         )
